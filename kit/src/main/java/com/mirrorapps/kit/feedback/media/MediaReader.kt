@@ -148,17 +148,18 @@ object MediaReader {
         }
     }
 
-    private fun copyToCache(context: Context, uri: Uri): File? = try {
-        val dir = File(context.cacheDir, "kit_media").apply { mkdirs() }
-        val out = File(dir, "pick-" + System.currentTimeMillis())
-        context.contentResolver.openInputStream(uri)?.use { input ->
-            out.outputStream().use { input.copyTo(it) }
-        } ?: return null
-        out.deleteOnExit()
-        out
-    } catch (e: Exception) {
-        MirrorAppsKit.log.w(TAG, "copy failed", e)
-        null
+    private fun copyToCache(context: Context, uri: Uri): File? {
+        return try {
+            val dir = File(context.cacheDir, "kit_media").apply { mkdirs() }
+            val out = File(dir, "pick-" + System.currentTimeMillis())
+            val input = context.contentResolver.openInputStream(uri) ?: return null
+            input.use { i -> out.outputStream().use { i.copyTo(it) } }
+            out.deleteOnExit()
+            out
+        } catch (e: Exception) {
+            MirrorAppsKit.log.w(TAG, "copy failed", e)
+            null
+        }
     }
 
     /** Duration and creation time (ms) from a video's own metadata. */
