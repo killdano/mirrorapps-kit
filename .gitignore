@@ -1,0 +1,24 @@
+*.iml
+.gradle
+local.properties
+.idea/
+.DS_Store
+build/
+.kotlin/
+captures/
+.externalNativeBuild
+.cxx
+
+# Never commit secrets of any kind: this repo is public.
+keystore.properties
+*.jks
+*.keystore
+*.p12
+*.pem
+.env
+.env.*
+*.token
+secrets.*
+google-services.json
+*service-account*.json
+hs_err_pid*.log
