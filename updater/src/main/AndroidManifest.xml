@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      The installer's answer for a test build: installed, failed, or "the
+      user has to confirm". Not exported: only the system's PackageInstaller
+      reaches it, through the PendingIntent the session was committed with.
+
+      The install permissions themselves are declared by the app, in a
+      debug-only manifest, so an app decides where they go.
+    -->
+    <application>
+        <receiver
+            android:name="com.mirrorapps.kit.updater.TestBuildInstallReceiver"
+            android:exported="false" />
+    </application>
+
+</manifest>
