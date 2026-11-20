@@ -91,4 +91,26 @@ class TestBuildRulesTest {
         assertEquals("21.0 MB", TestBuildRules.megabytes(21_000_000))
         assertEquals("0.5 MB", TestBuildRules.megabytes(500_000))
     }
+
+    @Test
+    fun aBuildRefusedForGoodIsntFetchedAgainButANewerOneIs() {
+        assertEquals(Decision.CANT_INSTALL,
+            TestBuildRules.decide(build(100029), 100026, autoInstall = true, refusedCode = 100029))
+        assertEquals(Decision.INSTALL,
+            TestBuildRules.decide(build(100030), 100026, autoInstall = true, refusedCode = 100029))
+        // Installed by hand since: up to date, whatever was refused.
+        assertEquals(Decision.UP_TO_DATE,
+            TestBuildRules.decide(build(100029), 100029, autoInstall = true, refusedCode = 100029))
+    }
+
+    @Test
+    fun onlyLastingFailuresCountAsRefused() {
+        assertTrue(TestBuildRules.refusedForGood(5)) // conflict: another key
+        assertTrue(TestBuildRules.refusedForGood(7)) // incompatible
+        assertTrue(TestBuildRules.refusedForGood(4)) // invalid APK
+        assertFalse(TestBuildRules.refusedForGood(3)) // cancelled
+        assertFalse(TestBuildRules.refusedForGood(2)) // blocked
+        assertFalse(TestBuildRules.refusedForGood(6)) // storage
+        assertFalse(TestBuildRules.refusedForGood(1)) // generic
+    }
 }

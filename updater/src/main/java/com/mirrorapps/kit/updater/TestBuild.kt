@@ -64,6 +64,12 @@ enum class Decision {
 
     /** Download and install it. */
     INSTALL,
+
+    /**
+     * Android already refused this very build for good (signed with a
+     * different key, or a broken APK): downloading it again can't help.
+     */
+    CANT_INSTALL,
 }
 
 /** The pure half of a check, so it can be tested without a phone. */
@@ -81,6 +87,7 @@ object TestBuildRules {
      *     and waiting for the user's tap, or 0.
      * @param waitingSince when that build was handed over (ms).
      * @param waitingSessionAlive whether Android still holds that session.
+     * @param refusedCode versionCode of a build Android refused for good, or 0.
      */
     fun decide(
         newest: TestBuild,
@@ -90,8 +97,10 @@ object TestBuildRules {
         waitingSince: Long = 0L,
         waitingSessionAlive: Boolean = false,
         now: Long = System.currentTimeMillis(),
+        refusedCode: Long = 0L,
     ): Decision = when {
         newest.versionCode <= installedCode -> Decision.UP_TO_DATE
+        refusedCode > 0L && newest.versionCode == refusedCode -> Decision.CANT_INSTALL
         !autoInstall -> Decision.NEWER_BUT_OFF
         waitingCode == newest.versionCode && waitingSessionAlive &&
             now - waitingSince in 0 until TAP_WAIT_MS -> Decision.WAITING_FOR_TAP
@@ -104,6 +113,15 @@ object TestBuildRules {
      */
     fun pendingLanded(pendingCode: Long, installedCode: Long): Boolean =
         pendingCode > 0L && installedCode >= pendingCode
+
+    /**
+     * Whether an install failure will happen again for the same build:
+     * a key mismatch (`STATUS_FAILURE_CONFLICT`, 5), an incompatible build
+     * (`STATUS_FAILURE_INCOMPATIBLE`, 7) or a broken APK
+     * (`STATUS_FAILURE_INVALID`, 4). A cancel, a block or full storage can
+     * pass, so those builds are tried again.
+     */
+    fun refusedForGood(status: Int): Boolean = status == 4 || status == 5 || status == 7
 
     /** `23.4 MB`, for log lines. */
     fun megabytes(bytes: Long): String = String.format(java.util.Locale.US, "%.1f MB", bytes / 1_000_000.0)

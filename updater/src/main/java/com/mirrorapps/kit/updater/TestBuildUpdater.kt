@@ -113,6 +113,8 @@ object TestBuildUpdater {
     private const val K_PENDING_TAG = "pending_tag"
     private const val K_PENDING_SESSION = "pending_session"
     private const val K_PENDING_AT = "pending_at"
+    private const val K_REFUSED_CODE = "refused_code"
+    private const val K_REFUSED_WHY = "refused_why"
 
     private const val CHANNEL_ID = "mirrorapps_test_builds"
     private const val NOTIFICATION_ID = 0x7e57
@@ -220,7 +222,13 @@ object TestBuildUpdater {
             when (TestBuildRules.decide(
                 newest, installed, _state.value.autoInstall,
                 waitingCode, prefs.getLong(K_PENDING_AT, 0L), alive,
+                refusedCode = prefs.getLong(K_REFUSED_CODE, 0L),
             )) {
+                Decision.CANT_INSTALL -> {
+                    val why = prefs.getString(K_REFUSED_WHY, null) ?: "Android refused it"
+                    cfg.log.i("$head, not downloading it again: $why")
+                    setPhase(Phase.FAILED, why)
+                }
                 Decision.UP_TO_DATE -> {
                     cfg.log.i("$head, up to date")
                     if (waitingCode != 0L) clearPending()
@@ -388,6 +396,16 @@ object TestBuildUpdater {
             else -> {
                 val why = statusName(status) + (message?.let { ": $it" } ?: "")
                 cfg.log.w("install of $tag failed: $why")
+                val code = prefs.getLong(K_PENDING_CODE, 0L)
+                if (TestBuildRules.refusedForGood(status) && code > 0L) {
+                    val note = if (status == PackageInstaller.STATUS_FAILURE_CONFLICT) {
+                        "$tag is signed with a different key than this build: uninstall ${cfg.appLabel} once and install it by hand"
+                    } else {
+                        "Android can't install $tag (${statusName(status)})"
+                    }
+                    prefs.edit().putLong(K_REFUSED_CODE, code).putString(K_REFUSED_WHY, note).apply()
+                    cfg.log.w("$note; waiting for a newer test build")
+                }
                 clearPending()
                 setPhase(Phase.FAILED, "install failed: ${statusName(status)}")
             }
