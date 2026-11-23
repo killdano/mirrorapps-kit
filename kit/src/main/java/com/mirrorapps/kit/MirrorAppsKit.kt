@@ -18,6 +18,7 @@ import org.json.JSONObject
  * ```
  * MirrorAppsKit.init(this, KitConfig(
  *     apps = listOf(KitApp("mirrormap", "MirrorMap"), KitApp("mirrormov", "MirrorMov")),
+ *     feedback = FeedbackOptions(app = "dash", ...),
  *     host = KitHost("MirrorMap Dash", BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE.toLong(), BuildConfig.DEBUG),
  *     credential = credentials.accessCode,
  *     logSource = myLog,
@@ -70,7 +71,7 @@ object MirrorAppsKit {
         }
     }
 
-    /** Small per-device conveniences of the kit's own (the last Feedback app picked). */
+    /** Small per-device conveniences of the kit's own. */
     internal fun prefs() = appContext.getSharedPreferences(KIT_PREFS, Context.MODE_PRIVATE)
 
     private const val KEY_INSTALL_ID = "install_id"
@@ -80,9 +81,8 @@ object MirrorAppsKit {
 /**
  * Everything the kit needs from its host.
  *
- * @property apps The apps this host serves, in switch order. Dash:
- *   MirrorMap and MirrorMov. MirrorMsg: MirrorMsg. With more than one, the
- *   Feedback tab shows a switch at the top.
+ * @property apps The apps this host serves, for session recording. Dash:
+ *   MirrorMap and MirrorMov. MirrorMsg: MirrorMsg.
  * @property host Name and version of the host app, for bug reports and chunks.
  * @property credential The access code (or owner credential) that
  *   authenticates media uploads, sessions and Feedback. Null when there's none.
@@ -114,7 +114,7 @@ class KitConfig(
  *
  * @property id The hub's app id and the session `app`: `mirrormap`,
  *   `mirrormov`, `mirrormsg`. Wire values: never rename one.
- * @property label What the Feedback switch shows.
+ * @property label The app's display name.
  */
 data class KitApp(val id: String, val label: String)
 
@@ -144,6 +144,10 @@ data class KitHost(
  * @property fullLogsText The explanation in the "Send full logs?" dialog:
  *   what full logs contain in this app, and that they're only sent with a
  *   report the user starts.
+ * @property app The hub app id Feedback talks as. There's no app switch:
+ *   Dash talks as `dash` and the hub works out MirrorMap, MirrorMov or Dash
+ *   from what the user says and the bundle (Dash's `lastUsed` section).
+ *   Null means the first of [KitConfig.apps] (MirrorMsg: `mirrormsg`).
  */
 class FeedbackOptions(
     val logsMode: () -> LogsMode = { LogsMode.REDACTED },
@@ -154,6 +158,7 @@ class FeedbackOptions(
     val logName: String = "log",
     val fullLogsText: String = "Full logs can include private details. They're only sent with a " +
         "report you start, never on their own. You can change this in Settings.",
+    val app: String? = null,
 )
 
 /** How much of the log goes into a bug report. */

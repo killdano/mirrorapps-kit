@@ -1,9 +1,7 @@
 package com.mirrorapps.kit.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,7 +20,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.mirrorapps.kit.KitApp
 import com.mirrorapps.kit.KitColors
 import com.mirrorapps.kit.MirrorAppsKit
 
@@ -79,43 +76,3 @@ fun KitTogglePill(checked: Boolean) {
     }
 }
 
-/**
- * Two or more apps side by side, one selected: the MirrorMap | MirrorMov
- * switch at the top of Dash's Feedback tab.
- */
-@Composable
-fun KitAppSwitch(
-    apps: List<KitApp>,
-    selected: String,
-    onSelect: (String) -> Unit,
-    enabled: Boolean = true,
-    modifier: Modifier = Modifier,
-) {
-    val c = kitColors()
-    val shape = RoundedCornerShape(6.dp)
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .border(1.dp, c.accent, shape),
-        horizontalArrangement = Arrangement.spacedBy(0.dp),
-    ) {
-        apps.forEach { app ->
-            val on = app.id == selected
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .background(if (on) c.accent else Color.Transparent, shape)
-                    .clickable(enabled = enabled && !on) { onSelect(app.id) }
-                    .padding(vertical = 8.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = app.label,
-                    color = if (on) c.accentFg else if (enabled) c.fg else c.disabledFg,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-        }
-    }
-}

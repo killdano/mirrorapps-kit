@@ -22,8 +22,9 @@ Compose, minSdk 26: the lower of the two apps). Packages:
 - `com.mirrorapps.kit`: `MirrorAppsKit.init(context, KitConfig(...))`, the
   host API: apps, host version, credential, log source, bundle
   contributors, theme, Feedback options.
-- `feedback`: the Feedback tab. `FeedbackPane` (switch between apps at the
-  top when the host serves more than one), `FeedbackSession` (the chat,
+- `feedback`: the Feedback tab. `FeedbackPane` (no app switch: the host
+  names one hub app in `FeedbackOptions.app`, Dash `dash`, and the hub
+  works out which app a report is about), `FeedbackSession` (the chat,
   attachments, voice), `FeedbackTransport` (SSE to the hub),
   `DiagnosticBundle` (host contributors plus redacted logs), `media/`
   (photo picker reading, voice recording, uploads).
@@ -32,7 +33,7 @@ Compose, minSdk 26: the lower of the two apps). Packages:
   half), the "Share my …" row and dialogs with host wording.
 - `privacy`: `PiiTags` (the log tagging format), `Redactor` (bug-report
   redaction), `ShapeFilter` (MirrorMsg's content shapes).
-- `ui`: the host-themed pieces (toggle row, app switch).
+- `ui`: the host-themed pieces (toggle row).
 
 ## How apps use it
 

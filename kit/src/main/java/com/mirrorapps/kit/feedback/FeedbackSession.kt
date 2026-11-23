@@ -29,7 +29,7 @@ import org.json.JSONObject
  * never loses a reply in flight.
  *
  * Memory only. The transcript, the session id and the last bundle are gone
- * on New chat, on switching apps, after [IDLE_RESET_MS] without activity, or
+ * on New chat, after [IDLE_RESET_MS] without activity, or
  * when the process dies. Media leaves the phone only when the user attaches
  * it, and goes to the backend the moment it's attached (so a voice message's
  * transcript can come back before sending).
@@ -46,8 +46,6 @@ object FeedbackSession {
     /** How long to wait for a voice message's transcript. */
     private const val TRANSCRIPT_WAIT_MS = 3L * 60L * 1000L
     private const val TRANSCRIPT_POLL_MS = 3_000L
-
-    private const val KEY_APP = "feedback_app"
 
     enum class Role { USER, AGENT, STATUS }
 
@@ -104,7 +102,10 @@ object FeedbackSession {
     private val _recordingSince = MutableStateFlow<Long?>(null)
     val recordingSince: StateFlow<Long?> = _recordingSince
 
-    /** The app this chat is about (a [com.mirrorapps.kit.KitApp.id]). Read after init. */
+    /**
+     * The hub app id this chat talks as: [com.mirrorapps.kit.FeedbackOptions.app],
+     * else the host's first app. Read after init.
+     */
     private val _app = MutableStateFlow("")
     val app: StateFlow<String> get() {
         if (_app.value.isEmpty()) _app.value = initialApp()
@@ -171,23 +172,9 @@ object FeedbackSession {
         log.d(TAG, "reset")
     }
 
-    /**
-     * Switches the app the chat is about. A hub chat belongs to one app, so
-     * this starts a new chat. Not while a reply is streaming.
-     */
-    fun selectApp(id: String) {
-        if (_busy.value || id == app.value) return
-        if (MirrorAppsKit.config.apps.none { it.id == id }) return
-        _app.value = id
-        runCatching { MirrorAppsKit.prefs().edit().putString(KEY_APP, id).apply() }
-        reset()
-        log.i(TAG, "app: $id")
-    }
-
     private fun initialApp(): String {
-        val apps = MirrorAppsKit.config.apps
-        val saved = runCatching { MirrorAppsKit.prefs().getString(KEY_APP, null) }.getOrNull()
-        return apps.firstOrNull { it.id == saved }?.id ?: apps.first().id
+        val config = MirrorAppsKit.config
+        return config.feedback.app?.takeIf { it.isNotBlank() } ?: config.apps.first().id
     }
 
     fun setDraft(text: String) {

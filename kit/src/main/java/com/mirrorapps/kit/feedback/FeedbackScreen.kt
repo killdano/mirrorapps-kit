@@ -56,7 +56,6 @@ import androidx.core.content.ContextCompat
 import com.mirrorapps.kit.KitColors
 import com.mirrorapps.kit.MirrorAppsKit
 import com.mirrorapps.kit.feedback.media.MediaKind
-import com.mirrorapps.kit.ui.KitAppSwitch
 import com.mirrorapps.kit.ui.kitColors
 import kotlinx.coroutines.delay
 import org.json.JSONObject
@@ -66,8 +65,8 @@ import org.json.JSONObject
  * from screens where the tabs aren't reachable (a paywall). Every place
  * shows the same [FeedbackSession].
  *
- * With more than one app in the host's config, a switch at the top picks
- * the app the chat is about (Dash: MirrorMap | MirrorMov).
+ * No app switch: the hub works out which app a report is about (see
+ * [com.mirrorapps.kit.FeedbackOptions.app]).
  */
 @Composable
 fun FeedbackPane(modifier: Modifier = Modifier) {
@@ -81,7 +80,6 @@ fun FeedbackPane(modifier: Modifier = Modifier) {
     val draft by FeedbackSession.draft.collectAsState()
     val attachments by FeedbackSession.attachments.collectAsState()
     val recordingSince by FeedbackSession.recordingSince.collectAsState()
-    val app by FeedbackSession.app.collectAsState()
     var showPreview by remember { mutableStateOf(false) }
     var showAttachMenu by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
@@ -121,17 +119,6 @@ fun FeedbackPane(modifier: Modifier = Modifier) {
     }
 
     Column(modifier = modifier.fillMaxSize()) {
-        if (config.apps.size > 1) {
-            KitAppSwitch(
-                apps = config.apps,
-                selected = app,
-                onSelect = { FeedbackSession.selectApp(it) },
-                enabled = !busy,
-                modifier = Modifier.padding(horizontal = 20.dp),
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-        }
-
         if (chat.isNotEmpty() || standIn) {
             Row(
                 modifier = Modifier
