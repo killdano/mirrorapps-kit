@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Feedback messages, media uploads, session chunks. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+      Voice messages in the Feedback tab. Asked for at run time, only when
+      the user taps the microphone; nothing records without that tap.
+    -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+</manifest>
