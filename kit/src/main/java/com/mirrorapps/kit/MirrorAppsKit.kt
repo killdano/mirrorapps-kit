@@ -148,6 +148,10 @@ data class KitHost(
  *   Dash talks as `dash` and the hub works out MirrorMap, MirrorMov or Dash
  *   from what the user says and the bundle (Dash's `lastUsed` section).
  *   Null means the first of [KitConfig.apps] (MirrorMsg: `mirrormsg`).
+ * @property logcat Whether a report attaches the host process's own logcat
+ *   (warnings and up) next to the host log. MirrorMsg turns it off: its
+ *   native bridges write to logcat without the app's scrubbing, so only its
+ *   own scrubbed log goes in a report.
  */
 class FeedbackOptions(
     val logsMode: () -> LogsMode = { LogsMode.REDACTED },
@@ -159,6 +163,7 @@ class FeedbackOptions(
     val fullLogsText: String = "Full logs can include private details. They're only sent with a " +
         "report you start, never on their own. You can change this in Settings.",
     val app: String? = null,
+    val logcat: Boolean = true,
 )
 
 /** How much of the log goes into a bug report. */
