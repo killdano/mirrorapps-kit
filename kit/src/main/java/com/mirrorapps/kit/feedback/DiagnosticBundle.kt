@@ -80,7 +80,7 @@ object DiagnosticBundle {
         val hostLog = runCatching { config.logSource.snapshotForReport() }.getOrDefault("")
         put("dashLog", redactor.redact(hostLog))
         put("dashLogLines", if (hostLog.isEmpty()) 0 else hostLog.count { it == '\n' } + 1)
-        put("logcat", redactor.redact(logcat()))
+        if (config.feedback.logcat) put("logcat", redactor.redact(logcat()))
         put("redactions", JSONObject(redactor.counts as Map<*, *>))
     }
 

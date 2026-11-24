@@ -62,7 +62,8 @@ wire format is the hub's (`functions/src/feedback/` there).
 - Feedback: `{app, sessionId?, text, bundle?, media?}` and
   `{app, sessionId, granted, bundle?}`, SSE events in `FeedbackEvent`.
   The bundle's `logs.dashLog` / `dashLogLines` / `logcat` / `redactions`
-  keys are read by the hub for every app, whatever the host is called.
+  keys are read by the hub for every app, whatever the host is called
+  (`logcat` is absent when the host sets `FeedbackOptions(logcat = false)`).
   Add fields and events; never rename one.
 - Sessions: chunk `app` is the session app's id string (the backend
   refuses anything else); the host's name and version go in `client`.
@@ -84,6 +85,9 @@ wire format is the hub's (`functions/src/feedback/` there).
   Its log lines tag names (`PiiTags.KIND_NAME`) and message text
   (`PiiTags.KIND_MESSAGE`) so `ShapeFilter.filterLogLine` can shape them;
   untagged text passes unchanged.
+- A host whose native code writes to logcat without its scrubbing sets
+  `FeedbackOptions(logcat = false)`, so only its own log goes in a report
+  (MirrorMsg: its Go bridges log there).
 - Media leaves the phone only when the user attaches it. Voice needs
   RECORD_AUDIO, asked for when the user taps Voice.
 
