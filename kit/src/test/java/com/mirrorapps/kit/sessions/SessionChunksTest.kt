@@ -299,6 +299,93 @@ class SessionChunksTest {
         assertTrue(del.getBoolean("deleteData"))
     }
 
+    // -- fixes ------------------------------------------------------------------
+
+    private val movHeader = SessionChunks.Header(app = "mirrormov", source = "dash", session = "dashmov-abc")
+
+    @Test
+    fun fixIsTheSpecArray() {
+        val f = SessionChunks.Fix(t = 1_700, lat = 12.3456789, lng = -98.7654321, acc = 4.26, speed = 5.678, heading = 271.04)
+        assertEquals("[1700,12.345679,-98.765432,4.3,5.68,271,0]", f.json().toString())
+    }
+
+    @Test
+    fun unknownFixFieldsAreMinusOne() {
+        val f = SessionChunks.Fix(t = 1, lat = 1.0, lng = 2.0, acc = Double.NaN, speed = -3.0, sent = true)
+        val a = f.json()
+        assertEquals(-1, a.getInt(3))
+        assertEquals(-1, a.getInt(4))
+        assertEquals(-1, a.getInt(5))
+        assertEquals(1, a.getInt(6))
+    }
+
+    @Test
+    fun slowFixesAloneAreAnIdleWindow() {
+        val w = SessionWindow(0)
+        w.addFix(SessionChunks.Fix(t = 1, lat = 1.0, lng = 2.0, speed = 0.4))
+        w.addFix(SessionChunks.Fix(t = 2, lat = 1.0, lng = 2.0))
+        assertFalse(w.worthUploading(active = false))
+        assertTrue(w.worthUploading(active = true))
+    }
+
+    @Test
+    fun aMovingFixMakesTheWindowWorthUploading() {
+        val w = SessionWindow(0)
+        w.addFix(SessionChunks.Fix(t = 1, lat = 1.0, lng = 2.0, speed = 2.5))
+        assertTrue(w.worthUploading(active = false))
+    }
+
+    @Test
+    fun fixWithoutAPositionIsIgnored() {
+        val w = SessionWindow(0)
+        w.addFix(SessionChunks.Fix(t = 1, lat = Double.NaN, lng = 2.0, speed = 9.0))
+        assertTrue(w.fixes.isEmpty())
+        assertFalse(w.worthUploading(active = true))
+    }
+
+    @Test
+    fun fixesAreCappedAndCounted() {
+        val w = SessionWindow(0)
+        repeat(SessionChunks.MAX_FIXES + 4) { w.addFix(SessionChunks.Fix(t = it.toLong(), lat = 1.0, lng = 2.0)) }
+        assertEquals(SessionChunks.MAX_FIXES, w.fixes.size)
+        assertEquals(4, w.droppedFixes)
+        assertEquals(4, w.droppedJson()!!.getInt("fixes"))
+    }
+
+    @Test
+    fun chunkCarriesFixesWhenThereAreSome() {
+        val w = SessionWindow(1_000)
+        w.addFix(SessionChunks.Fix(t = 1_100, lat = 10.0, lng = 20.0, acc = 3.0, speed = 4.0, heading = 90.0))
+        w.addEvent(SessionChunks.event(1_150, "mov_state", mapOf("what" to "start", "sport" to "Ride")), isNotif = false, worthy = true)
+        val j = pieceJson(SessionChunks.buildPieces(w, movHeader, 0, 2_000, client).single())
+        assertEquals("mirrormov", j.getString("app"))
+        val fixes = j.getJSONArray("fixes")
+        assertEquals(1, fixes.length())
+        assertEquals(1_100L, fixes.getJSONArray(0).getLong(0))
+        assertEquals(10.0, fixes.getJSONArray(0).getDouble(1), 0.0)
+        assertEquals(0, fixes.getJSONArray(0).getInt(6))
+        assertEquals("mov_state", j.getJSONArray("events").getJSONObject(0).getString("k"))
+    }
+
+    @Test
+    fun bigWindowSplitsFixesInTimeOrderToo() {
+        val w = SessionWindow(0)
+        for (i in 0 until 400) {
+            w.addFix(SessionChunks.Fix(t = i * 10L, lat = 1.0 + i / 1e5, lng = 2.0, acc = 5.0, speed = 3.0, heading = 180.0))
+            w.addLog(i * 10L + 5, "log line $i ".repeat(10))
+        }
+        w.end = "saved"
+        val pieces = SessionChunks.buildPieces(w, movHeader, firstSeq = 0, t1 = 5_000, client = client, maxRawBytes = 20_000)
+        assertTrue("expected a split, got ${pieces.size}", pieces.size > 1)
+        val jsons = pieces.map { pieceJson(it) }
+        jsons.forEach { assertTrue(it.toString().toByteArray().size <= 20_000) }
+        assertEquals("saved", jsons.last().getString("end"))
+        val fixT = jsons.flatMap { j ->
+            if (!j.has("fixes")) emptyList() else j.getJSONArray("fixes").let { a -> (0 until a.length()).map { a.getJSONArray(it).getLong(0) } }
+        }
+        assertEquals((0 until 400).map { it * 10L }, fixT)
+    }
+
     @Test
     fun logLineIsATwoElementArray() {
         val j = SessionChunks.chunkJson(header, 0, 0, 1, client, null, emptyList(), listOf(SessionChunks.LogLine(9, "x")))
