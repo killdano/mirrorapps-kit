@@ -61,6 +61,8 @@ class SessionSpec(
  *   uploads queued for 30 minutes;
  * - consent: [setConsent] for the "Share my …" switch and its delete.
  *
+ * Hosts with their own GPS also call [addFix].
+ *
  * Hooks are called on any thread. They only append to memory under [lock];
  * JSON building for the upload, gzip and the network all happen on
  * [scope]. When recording is off, [isRecording] is one volatile read, so
@@ -342,6 +344,15 @@ class SessionRecorder(val spec: SessionSpec) {
     fun add(event: JSONObject, isNotif: Boolean = false, worthy: Boolean = true) {
         if (!recording) return
         synchronized(lock) { window.addEvent(event, isNotif, worthy) }
+    }
+
+    /**
+     * One GPS fix, for recorders with their own GPS (SPEC `fixes`). A fix
+     * faster than 2 m/s marks the window worth uploading. Never throws.
+     */
+    fun addFix(fix: SessionChunks.Fix) {
+        if (!recording) return
+        synchronized(lock) { window.addFix(fix) }
     }
 
     /** One log line, unredacted. Must not log: hosts call this from their logger. */

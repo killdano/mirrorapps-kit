@@ -23,6 +23,13 @@ object SessionChunks {
     const val MAX_LOG_LINES = 5_000
     const val MAX_NOTIF_EVENTS = 3_000
     const val MAX_OTHER_EVENTS = 3_000
+    const val MAX_FIXES = 5_000
+
+    /**
+     * SPEC: a window with a fix faster than this (m/s) is worth uploading,
+     * whatever else happened in it.
+     */
+    const val MOVING_SPEED_MPS = 2.0
 
     /** SPEC: max 4 MB per request. Split below it, with margin. */
     const val MAX_RAW_BYTES = 3_500_000
@@ -156,6 +163,42 @@ object SessionChunks {
     /** One log line as SPEC wants it: `[t, line]`. */
     data class LogLine(val t: Long, val line: String)
 
+    /**
+     * One GPS fix as SPEC wants it: `[t, lat, lng, acc, speed, heading,
+     * sent]`. Unknown accuracy, speed or heading is -1. [sent] is true when
+     * this fix was the one forwarded to the watch.
+     */
+    data class Fix(
+        val t: Long,
+        val lat: Double,
+        val lng: Double,
+        val acc: Double = -1.0,
+        val speed: Double = -1.0,
+        val heading: Double = -1.0,
+        val sent: Boolean = false,
+    ) {
+        /** Faster than [MOVING_SPEED_MPS]: SPEC's test for a window worth uploading. */
+        val moving: Boolean get() = speed.isFinite() && speed > MOVING_SPEED_MPS
+
+        /** `[t, lat, lng, acc, speed, heading, sent]`: degrees to 6 decimals. */
+        fun json(): JSONArray = JSONArray()
+            .put(t)
+            .put(round(lat, 1e6))
+            .put(round(lng, 1e6))
+            .put(orUnknown(acc, 1e1))
+            .put(orUnknown(speed, 1e2))
+            .put(orUnknown(heading, 1e1))
+            .put(if (sent) 1 else 0)
+
+        private companion object {
+            fun round(v: Double, scale: Double): Double = Math.round(v * scale) / scale
+
+            /** Negative or not finite means unknown: -1, as SPEC says. */
+            fun orUnknown(v: Double, scale: Double): Any =
+                if (v.isFinite() && v >= 0) round(v, scale) else -1
+        }
+    }
+
     /** A chunk ready to send: gzipped JSON, with its uncompressed size. */
     class Piece(val seq: Int, val gzip: ByteArray, val rawBytes: Int, val end: String?) {
         /** The uncompressed JSON, for a backend that turns out not to take gzip. */
@@ -175,8 +218,9 @@ object SessionChunks {
     /**
      * The chunk body, per SPEC. `app` is the session app's id (the backend
      * refuses a chunk whose `app` isn't one); the host app's name and
-     * version go in `client`. `fixes` is for recorders with GPS; Dash's
-     * MirrorMap recorder leaves it out.
+     * version go in `client`. `fixes` is only there when the window has
+     * some: recorders with their own GPS (Dash's MirrorMov recorder) add
+     * them, the others (Dash's MirrorMap recorder) never do.
      */
     fun chunkJson(
         header: Header,
@@ -188,6 +232,7 @@ object SessionChunks {
         events: List<JSONObject>,
         logs: List<LogLine>,
         dropped: JSONObject? = null,
+        fixes: List<Fix> = emptyList(),
     ): JSONObject {
         val ev = JSONArray()
         for (e in events) ev.put(e)
@@ -203,8 +248,12 @@ object SessionChunks {
             .put("t1", t1)
             .put("client", client)
             .put("end", end ?: JSONObject.NULL)
-            .put("events", ev)
-            .put("logs", lg)
+        if (fixes.isNotEmpty()) {
+            val fx = JSONArray()
+            for (f in fixes) fx.put(f.json())
+            j.put("fixes", fx)
+        }
+        j.put("events", ev).put("logs", lg)
         if (dropped != null) j.put("dropped", dropped)
         return j
     }
@@ -231,47 +280,53 @@ object SessionChunks {
         maxGzipBytes: Int = MAX_GZIP_BYTES,
     ): List<Piece> {
         val dropped = window.droppedJson()
-        val parts = partition(window.events.toList(), window.logs.toList()) { ev, lg ->
-            val raw = chunkJson(header, firstSeq, window.t0, t1, client, window.end, ev, lg, dropped)
+        val whole = Part(window.events.toList(), window.logs.toList(), window.fixes.toList())
+        val parts = partition(whole) { p ->
+            val raw = chunkJson(header, firstSeq, window.t0, t1, client, window.end, p.events, p.logs, dropped, p.fixes)
                 .toString().toByteArray(Charsets.UTF_8)
             raw.size <= maxRawBytes && gzip(raw).size <= maxGzipBytes
         }
-        return parts.mapIndexed { i, (ev, lg) ->
+        return parts.mapIndexed { i, p ->
             val last = i == parts.size - 1
             val end = if (last) window.end else null
             val raw = chunkJson(
-                header, firstSeq + i, window.t0, t1, client, end, ev, lg,
-                if (i == 0) dropped else null,
+                header, firstSeq + i, window.t0, t1, client, end, p.events, p.logs,
+                if (i == 0) dropped else null, p.fixes,
             ).toString().toByteArray(Charsets.UTF_8)
             Piece(seq = firstSeq + i, gzip = gzip(raw), rawBytes = raw.size, end = end)
         }
     }
 
+    /** What one piece carries. */
+    private class Part(val events: List<JSONObject>, val logs: List<LogLine>, val fixes: List<Fix>) {
+        val size: Int get() = events.size + logs.size + fixes.size
+    }
+
     /**
-     * Splits events and logs until each part [fits], by time: everything at
-     * or before the median time goes first. A single item that doesn't fit
-     * goes as it is, and the backend's 413 drops it.
+     * Splits events, logs and fixes until each part [fits], by time:
+     * everything at or before the median time goes first. A single item that
+     * doesn't fit goes as it is, and the backend's 413 drops it.
      */
-    private fun partition(
-        events: List<JSONObject>,
-        logs: List<LogLine>,
-        fits: (List<JSONObject>, List<LogLine>) -> Boolean,
-    ): List<Pair<List<JSONObject>, List<LogLine>>> {
-        if (events.size + logs.size <= 1 || fits(events, logs)) return listOf(events to logs)
-        val times = (events.map { it.optLong("t") } + logs.map { it.t }).sorted()
+    private fun partition(p: Part, fits: (Part) -> Boolean): List<Part> {
+        if (p.size <= 1 || fits(p)) return listOf(p)
+        val times = (p.events.map { it.optLong("t") } + p.logs.map { it.t } + p.fixes.map { it.t }).sorted()
         val mid = times[(times.size - 1) / 2]
-        var aEv = events.filter { it.optLong("t") <= mid }
-        var aLg = logs.filter { it.t <= mid }
-        var bEv = events.filter { it.optLong("t") > mid }
-        var bLg = logs.filter { it.t > mid }
-        if (bEv.isEmpty() && bLg.isEmpty()) {
+        var a = Part(
+            p.events.filter { it.optLong("t") <= mid },
+            p.logs.filter { it.t <= mid },
+            p.fixes.filter { it.t <= mid },
+        )
+        var b = Part(
+            p.events.filter { it.optLong("t") > mid },
+            p.logs.filter { it.t > mid },
+            p.fixes.filter { it.t > mid },
+        )
+        if (b.size == 0) {
             // Everything shares one timestamp: halve by position instead.
-            aEv = events.take(events.size / 2)
-            bEv = events.drop(events.size / 2)
-            aLg = logs.take(logs.size / 2)
-            bLg = logs.drop(logs.size / 2)
+            a = Part(p.events.take(p.events.size / 2), p.logs.take(p.logs.size / 2), p.fixes.take(p.fixes.size / 2))
+            b = Part(p.events.drop(p.events.size / 2), p.logs.drop(p.logs.size / 2), p.fixes.drop(p.fixes.size / 2))
         }
-        return partition(aEv, aLg, fits) + partition(bEv, bLg, fits)
+        return partition(a, fits) + partition(b, fits)
     }
 }
 
@@ -282,8 +337,11 @@ object SessionChunks {
 class SessionWindow(val t0: Long) {
     val events = ArrayList<JSONObject>()
     val logs = ArrayList<SessionChunks.LogLine>()
+    val fixes = ArrayList<SessionChunks.Fix>()
     private var notifCount = 0
     var droppedLogs = 0
+        private set
+    var droppedFixes = 0
         private set
     var droppedNotifs = 0
         private set
@@ -322,23 +380,40 @@ class SessionWindow(val t0: Long) {
     }
 
     /**
-     * Upload this window? Only if something worthy happened in it, the
-     * session ended, or the host says it's active (navigation running); idle
-     * windows are dropped on the phone. A window with nothing in it at all
-     * is never sent.
+     * Adds a GPS fix unless the cap is reached. A moving fix (SPEC: over
+     * 2 m/s) makes the window worthy. A fix without a real position is
+     * ignored: JSON has no NaN.
+     */
+    fun addFix(f: SessionChunks.Fix) {
+        if (!f.lat.isFinite() || !f.lng.isFinite()) return
+        if (fixes.size >= SessionChunks.MAX_FIXES) {
+            droppedFixes++
+            return
+        }
+        fixes.add(f)
+        if (f.moving) worthy = true
+    }
+
+    /**
+     * Upload this window? Only if something worthy happened in it (a worthy
+     * event, a moving fix), the session ended, or the host says it's active
+     * (navigation or an activity running); idle windows are dropped on the
+     * phone. A window with nothing in it at all is never sent.
      */
     fun worthUploading(active: Boolean): Boolean {
         if (end != null) return true
-        if (events.isEmpty() && logs.isEmpty()) return false
+        if (events.isEmpty() && logs.isEmpty() && fixes.isEmpty()) return false
         return worthy || active
     }
 
     /** What the caps threw away, or null when nothing was. */
     fun droppedJson(): JSONObject? {
-        if (droppedLogs == 0 && droppedNotifs == 0 && droppedEvents == 0) return null
-        return JSONObject()
+        if (droppedLogs == 0 && droppedNotifs == 0 && droppedEvents == 0 && droppedFixes == 0) return null
+        val j = JSONObject()
             .put("logs", droppedLogs)
             .put("notifs", droppedNotifs)
             .put("events", droppedEvents)
+        if (droppedFixes > 0) j.put("fixes", droppedFixes)
+        return j
     }
 }
