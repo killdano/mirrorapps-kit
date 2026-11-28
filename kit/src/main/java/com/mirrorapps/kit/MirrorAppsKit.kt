@@ -162,7 +162,7 @@ class FeedbackOptions(
     val installIdPrefs: String = "mirrorapps_kit_feedback",
     val logName: String = "log",
     val fullLogsText: String = "Full logs can include private details. They're only sent with a " +
-        "report you start, never on their own. You can change this in Settings.",
+        "report you start, never on their own. You can change this at the top of the chat.",
     val app: String? = null,
     val logcat: Boolean = true,
 )
