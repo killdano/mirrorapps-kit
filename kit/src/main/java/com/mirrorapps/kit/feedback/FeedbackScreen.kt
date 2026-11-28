@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.mirrorapps.kit.KitColors
+import com.mirrorapps.kit.LogsMode
 import com.mirrorapps.kit.MirrorAppsKit
 import com.mirrorapps.kit.feedback.media.MediaKind
 import com.mirrorapps.kit.ui.kitColors
@@ -80,6 +81,7 @@ fun FeedbackPane(modifier: Modifier = Modifier) {
     val draft by FeedbackSession.draft.collectAsState()
     val attachments by FeedbackSession.attachments.collectAsState()
     val recordingSince by FeedbackSession.recordingSince.collectAsState()
+    val logsMode by FeedbackSession.logsMode.collectAsState()
     var showPreview by remember { mutableStateOf(false) }
     var showAttachMenu by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
@@ -119,6 +121,10 @@ fun FeedbackPane(modifier: Modifier = Modifier) {
     }
 
     Column(modifier = modifier.fillMaxSize()) {
+        if (config.feedback.showLogsChoice) {
+            LogsChoiceRow(selected = logsMode, colors = c) { FeedbackSession.chooseLogs(it) }
+        }
+
         if (chat.isNotEmpty() || standIn) {
             Row(
                 modifier = Modifier
@@ -272,6 +278,62 @@ fun FeedbackPane(modifier: Modifier = Modifier) {
     val bundle = lastBundle
     if (showPreview && bundle != null) {
         SentDataDialog(bundle = bundle, logName = config.feedback.logName, onClose = { showPreview = false })
+    }
+}
+
+/**
+ * "Logs in bug reports" at the top of the chat, where logs are shared:
+ * Full, Redacted or None, the host's own setting
+ * ([com.mirrorapps.kit.FeedbackOptions.showLogsChoice]).
+ */
+@Composable
+private fun LogsChoiceRow(selected: LogsMode, colors: KitColors, onPick: (LogsMode) -> Unit) {
+    val c = colors
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "Logs in bug reports",
+            color = c.fg,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.weight(1f),
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(
+                LogsMode.FULL to "Full",
+                LogsMode.REDACTED to "Redacted",
+                LogsMode.NONE to "None",
+            ).forEach { (mode, label) ->
+                ChoiceButton(label = label, selected = mode == selected, colors = c) { onPick(mode) }
+            }
+        }
+    }
+}
+
+/** One option of a choice: accent fill when selected, card with a divider border when not. */
+@Composable
+private fun ChoiceButton(label: String, selected: Boolean, colors: KitColors, onClick: () -> Unit) {
+    val c = colors
+    Box(
+        modifier = Modifier
+            .height(36.dp)
+            .background(if (selected) c.accent else c.cardBg, RoundedCornerShape(6.dp))
+            .border(1.dp, if (selected) c.accent else c.cardDivider, RoundedCornerShape(6.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            color = if (selected) c.accentFg else c.fg,
+            fontSize = 13.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+        )
     }
 }
 

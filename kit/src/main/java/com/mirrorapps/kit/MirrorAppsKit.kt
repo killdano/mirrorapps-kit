@@ -132,6 +132,10 @@ data class KitHost(
  * @property logsMode Reads the host's "Logs in bug reports" setting.
  * @property setLogsMode Saves it. Allow on the "Send full logs?" dialog
  *   moves it to [LogsMode.FULL], so later reports don't ask again.
+ * @property showLogsChoice Shows "Logs in bug reports" (Full / Redacted /
+ *   None) at the top of the chat, where logs are shared. It reads and saves
+ *   through [logsMode] and [setLogsMode]. Off by default, for a host that
+ *   shows the choice itself.
  * @property secrets Exact strings removed from every log in every mode (a
  *   dev code compiled into the app, the user's own code). Read at report
  *   time; never stored by the kit.
@@ -152,6 +156,7 @@ data class KitHost(
 class FeedbackOptions(
     val logsMode: () -> LogsMode = { LogsMode.REDACTED },
     val setLogsMode: (LogsMode) -> Unit = {},
+    val showLogsChoice: Boolean = false,
     val secrets: () -> Collection<String> = { emptyList() },
     val standIn: () -> FeedbackBackend? = { null },
     val installIdPrefs: String = "mirrorapps_kit_feedback",

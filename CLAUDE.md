@@ -78,7 +78,9 @@ wire format is the hub's (`functions/src/feedback/` there).
 ## Privacy rules the code keeps
 
 - Bug-report logs go through `Redactor` per the host's "Logs in bug
-  reports" setting; codes, tokens and emails go in every mode.
+  reports" setting; codes, tokens and emails go in every mode. With
+  `FeedbackOptions.showLogsChoice`, the chat shows that setting (Full /
+  Redacted / None) at its top and saves it through the host.
 - MirrorMsg never sends message content: notification, conversation and
   reply text goes through `ShapeFilter`, names become `Name` + length.
   Its log lines tag names (`PiiTags.KIND_NAME`) and message text

@@ -103,6 +103,21 @@ object FeedbackSession {
     val recordingSince: StateFlow<Long?> = _recordingSince
 
     /**
+     * The host's "Logs in bug reports" setting, for the choice at the top of
+     * the chat. Read on first use and again whenever the chat comes on
+     * screen, because the host may change it elsewhere.
+     */
+    private val _logsMode = MutableStateFlow(LogsMode.REDACTED)
+    private var logsModeRead = false
+    val logsMode: StateFlow<LogsMode> get() {
+        if (!logsModeRead) {
+            logsModeRead = true
+            _logsMode.value = hostLogsMode()
+        }
+        return _logsMode
+    }
+
+    /**
      * The hub app id this chat talks as: [com.mirrorapps.kit.FeedbackOptions.app],
      * else the host's first app. Read after init.
      */
@@ -155,6 +170,7 @@ object FeedbackSession {
 
     /** Call when the chat comes on screen. */
     fun onShown() {
+        _logsMode.value = hostLogsMode()
         if (!_busy.value && _items.value.isNotEmpty() &&
             System.currentTimeMillis() - lastActivityMs > IDLE_RESET_MS
         ) {
@@ -175,6 +191,16 @@ object FeedbackSession {
     private fun initialApp(): String {
         val config = MirrorAppsKit.config
         return config.feedback.app?.takeIf { it.isNotBlank() } ?: config.apps.first().id
+    }
+
+    /**
+     * The user picked Full, Redacted or None at the top of the chat. Saved
+     * through the host; a chat's first message sends its logs this way.
+     */
+    fun chooseLogs(mode: LogsMode) {
+        runCatching { MirrorAppsKit.config.feedback.setLogsMode(mode) }
+        _logsMode.value = hostLogsMode()
+        log.i(TAG, "logs: ${_logsMode.value.wire} (chosen in chat)")
     }
 
     fun setDraft(text: String) {
@@ -207,7 +233,7 @@ object FeedbackSession {
         val about = app.value
         scope.launch {
             val bundle = if (sessionId == null) {
-                DiagnosticBundle.build(ctx, about, logsMode()).also { _lastBundle.value = it }
+                DiagnosticBundle.build(ctx, about, hostLogsMode()).also { _lastBundle.value = it }
             } else null
             log.i(TAG, "send: app=$about first=${bundle != null} media=${mediaIds.size} standIn=$usingStandIn")
             collectReply(transport().send(FeedbackMessage(about, sessionId, text, bundle, mediaIds)), ctx)
@@ -223,7 +249,10 @@ object FeedbackSession {
         _consentReason.value = null
         val sid = sessionId ?: return
         val ctx = context.applicationContext
-        if (granted) runCatching { MirrorAppsKit.config.feedback.setLogsMode(LogsMode.FULL) }
+        if (granted) {
+            runCatching { MirrorAppsKit.config.feedback.setLogsMode(LogsMode.FULL) }
+            _logsMode.value = hostLogsMode()
+        }
         log.i(TAG, "consent: granted=$granted")
         sendConsent(ctx, sid, granted)
     }
@@ -240,7 +269,7 @@ object FeedbackSession {
         }
     }
 
-    private fun logsMode(): LogsMode =
+    private fun hostLogsMode(): LogsMode =
         runCatching { MirrorAppsKit.config.feedback.logsMode() }.getOrDefault(LogsMode.REDACTED)
 
     private suspend fun collectReply(reply: Flow<FeedbackEvent>, ctx: Context) {
@@ -271,7 +300,7 @@ object FeedbackSession {
         val reason = pendingConsent ?: return
         val sid = sessionId ?: return
         // Already on Full: the user said yes once, don't ask again.
-        if (logsMode() == LogsMode.FULL) {
+        if (hostLogsMode() == LogsMode.FULL) {
             log.i(TAG, "consent: auto (logs already Full)")
             sendConsent(ctx, sid, granted = true)
         } else {
