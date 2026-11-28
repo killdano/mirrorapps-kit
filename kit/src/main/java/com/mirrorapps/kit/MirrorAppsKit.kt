@@ -129,7 +129,8 @@ data class KitHost(
 /**
  * Feedback tab settings that belong to the host.
  *
- * @property logsMode Reads the host's "Logs in bug reports" setting.
+ * @property logsMode Reads the host's "Logs in bug reports" setting. The
+ *   chat shows it (Full / Redacted / None) at its top, in every app.
  * @property setLogsMode Saves it. Allow on the "Send full logs?" dialog
  *   moves it to [LogsMode.FULL], so later reports don't ask again.
  * @property secrets Exact strings removed from every log in every mode (a
@@ -148,6 +149,10 @@ data class KitHost(
  *   Dash talks as `dash` and the hub works out MirrorMap, MirrorMov or Dash
  *   from what the user says and the bundle (Dash's `lastUsed` section).
  *   Null means the first of [KitConfig.apps] (MirrorMsg: `mirrormsg`).
+ * @property logcat Whether a report attaches the host process's own logcat
+ *   (warnings and up) next to the host log. MirrorMsg turns it off: its
+ *   native bridges write to logcat without the app's scrubbing, so only its
+ *   own scrubbed log goes in a report.
  */
 class FeedbackOptions(
     val logsMode: () -> LogsMode = { LogsMode.REDACTED },
@@ -157,8 +162,9 @@ class FeedbackOptions(
     val installIdPrefs: String = "mirrorapps_kit_feedback",
     val logName: String = "log",
     val fullLogsText: String = "Full logs can include private details. They're only sent with a " +
-        "report you start, never on their own. You can change this in Settings.",
+        "report you start, never on their own. You can change this at the top of the chat.",
     val app: String? = null,
+    val logcat: Boolean = true,
 )
 
 /** How much of the log goes into a bug report. */

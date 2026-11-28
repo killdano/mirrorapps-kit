@@ -1,6 +1,7 @@
 package com.mirrorapps.kit.feedback
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import com.mirrorapps.kit.LogsMode
 import com.mirrorapps.kit.MirrorAppsKit
@@ -10,6 +11,7 @@ import com.mirrorapps.kit.feedback.media.MediaKind
 import com.mirrorapps.kit.feedback.media.MediaReader
 import com.mirrorapps.kit.feedback.media.MediaSource
 import com.mirrorapps.kit.feedback.media.MediaUpload
+import com.mirrorapps.kit.feedback.media.Thumbnails
 import com.mirrorapps.kit.feedback.media.VoiceRecorder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -55,8 +57,13 @@ object FeedbackSession {
         val text: String,
         /** Agent offered to show what was sent: render a View chip. */
         val offersPreview: Boolean = false,
-        /** What the user attached to this message, as labels ("Picture"). */
+        /**
+         * What the user attached to this message without a preview, as
+         * labels ("Voice 0:12"). Pictures and videos show as [thumbs].
+         */
         val attachments: List<String> = emptyList(),
+        /** Previews of the pictures and videos the user attached, in order. */
+        val thumbs: List<Bitmap> = emptyList(),
     )
 
     enum class AttachState { UPLOADING, TRANSCRIBING, READY, FAILED }
@@ -70,6 +77,8 @@ object FeedbackSession {
         val progress: Float = 0f,
         val mediaId: String? = null,
         val error: String? = null,
+        /** A small preview of a picture or video, once it's been read. */
+        val thumb: Bitmap? = null,
     ) {
         /** Uploaded: it can go with a message (a transcript may still be coming). */
         val sendable: Boolean get() = mediaId != null && (state == AttachState.READY || state == AttachState.TRANSCRIBING)
@@ -101,6 +110,21 @@ object FeedbackSession {
     /** When the voice message being recorded started, or null. */
     private val _recordingSince = MutableStateFlow<Long?>(null)
     val recordingSince: StateFlow<Long?> = _recordingSince
+
+    /**
+     * The host's "Logs in bug reports" setting, for the choice at the top of
+     * the chat. Read on first use and again whenever the chat comes on
+     * screen, because the host may change it elsewhere.
+     */
+    private val _logsMode = MutableStateFlow(LogsMode.REDACTED)
+    private var logsModeRead = false
+    val logsMode: StateFlow<LogsMode> get() {
+        if (!logsModeRead) {
+            logsModeRead = true
+            _logsMode.value = hostLogsMode()
+        }
+        return _logsMode
+    }
 
     /**
      * The hub app id this chat talks as: [com.mirrorapps.kit.FeedbackOptions.app],
@@ -155,6 +179,7 @@ object FeedbackSession {
 
     /** Call when the chat comes on screen. */
     fun onShown() {
+        _logsMode.value = hostLogsMode()
         if (!_busy.value && _items.value.isNotEmpty() &&
             System.currentTimeMillis() - lastActivityMs > IDLE_RESET_MS
         ) {
@@ -175,6 +200,16 @@ object FeedbackSession {
     private fun initialApp(): String {
         val config = MirrorAppsKit.config
         return config.feedback.app?.takeIf { it.isNotBlank() } ?: config.apps.first().id
+    }
+
+    /**
+     * The user picked Full, Redacted or None at the top of the chat. Saved
+     * through the host; a chat's first message sends its logs this way.
+     */
+    fun chooseLogs(mode: LogsMode) {
+        runCatching { MirrorAppsKit.config.feedback.setLogsMode(mode) }
+        _logsMode.value = hostLogsMode()
+        log.i(TAG, "logs: ${_logsMode.value.wire} (chosen in chat)")
     }
 
     fun setDraft(text: String) {
@@ -203,11 +238,19 @@ object FeedbackSession {
         }
         _busy.value = true
         lastActivityMs = System.currentTimeMillis()
-        append(Item(nextId++, Role.USER, text, attachments = sending.map { it.label }))
+        append(
+            Item(
+                nextId++,
+                Role.USER,
+                text,
+                attachments = sending.filter { it.thumb == null }.map { it.label },
+                thumbs = sending.mapNotNull { it.thumb },
+            ),
+        )
         val about = app.value
         scope.launch {
             val bundle = if (sessionId == null) {
-                DiagnosticBundle.build(ctx, about, logsMode()).also { _lastBundle.value = it }
+                DiagnosticBundle.build(ctx, about, hostLogsMode()).also { _lastBundle.value = it }
             } else null
             log.i(TAG, "send: app=$about first=${bundle != null} media=${mediaIds.size} standIn=$usingStandIn")
             collectReply(transport().send(FeedbackMessage(about, sessionId, text, bundle, mediaIds)), ctx)
@@ -223,7 +266,10 @@ object FeedbackSession {
         _consentReason.value = null
         val sid = sessionId ?: return
         val ctx = context.applicationContext
-        if (granted) runCatching { MirrorAppsKit.config.feedback.setLogsMode(LogsMode.FULL) }
+        if (granted) {
+            runCatching { MirrorAppsKit.config.feedback.setLogsMode(LogsMode.FULL) }
+            _logsMode.value = hostLogsMode()
+        }
         log.i(TAG, "consent: granted=$granted")
         sendConsent(ctx, sid, granted)
     }
@@ -240,7 +286,7 @@ object FeedbackSession {
         }
     }
 
-    private fun logsMode(): LogsMode =
+    private fun hostLogsMode(): LogsMode =
         runCatching { MirrorAppsKit.config.feedback.logsMode() }.getOrDefault(LogsMode.REDACTED)
 
     private suspend fun collectReply(reply: Flow<FeedbackEvent>, ctx: Context) {
@@ -271,7 +317,7 @@ object FeedbackSession {
         val reason = pendingConsent ?: return
         val sid = sessionId ?: return
         // Already on Full: the user said yes once, don't ask again.
-        if (logsMode() == LogsMode.FULL) {
+        if (hostLogsMode() == LogsMode.FULL) {
             log.i(TAG, "consent: auto (logs already Full)")
             sendConsent(ctx, sid, granted = true)
         } else {
@@ -293,6 +339,10 @@ object FeedbackSession {
         val id = nextId++
         add(Attachment(id, kind, labelFor(kind, 0L), AttachState.UPLOADING))
         uploads[id] = scope.launch {
+            // The preview first: it's quick, and the picker's permission to
+            // read the file may not outlast the upload.
+            val thumb = withContext(Dispatchers.IO) { Thumbnails.load(ctx, uri, kind) }
+            if (thumb != null) change(id) { it.copy(thumb = thumb) }
             val source = withContext(Dispatchers.IO) {
                 runCatching { MediaReader.read(ctx, uri, kind) }.getOrNull()
             }

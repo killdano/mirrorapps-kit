@@ -6,6 +6,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,11 +16,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -45,6 +48,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -54,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.mirrorapps.kit.KitColors
+import com.mirrorapps.kit.LogsMode
 import com.mirrorapps.kit.MirrorAppsKit
 import com.mirrorapps.kit.feedback.media.MediaKind
 import com.mirrorapps.kit.ui.kitColors
@@ -80,6 +87,7 @@ fun FeedbackPane(modifier: Modifier = Modifier) {
     val draft by FeedbackSession.draft.collectAsState()
     val attachments by FeedbackSession.attachments.collectAsState()
     val recordingSince by FeedbackSession.recordingSince.collectAsState()
+    val logsMode by FeedbackSession.logsMode.collectAsState()
     var showPreview by remember { mutableStateOf(false) }
     var showAttachMenu by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
@@ -119,6 +127,8 @@ fun FeedbackPane(modifier: Modifier = Modifier) {
     }
 
     Column(modifier = modifier.fillMaxSize()) {
+        LogsChoiceRow(selected = logsMode, colors = c) { FeedbackSession.chooseLogs(it) }
+
         if (chat.isNotEmpty() || standIn) {
             Row(
                 modifier = Modifier
@@ -275,6 +285,62 @@ fun FeedbackPane(modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * "Logs in bug reports" at the top of the chat, where logs are shared:
+ * Full, Redacted or None. Every app shows it; the setting itself is the
+ * host's ([com.mirrorapps.kit.FeedbackOptions.logsMode]).
+ */
+@Composable
+private fun LogsChoiceRow(selected: LogsMode, colors: KitColors, onPick: (LogsMode) -> Unit) {
+    val c = colors
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "Logs in bug reports",
+            color = c.fg,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.weight(1f),
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(
+                LogsMode.FULL to "Full",
+                LogsMode.REDACTED to "Redacted",
+                LogsMode.NONE to "None",
+            ).forEach { (mode, label) ->
+                ChoiceButton(label = label, selected = mode == selected, colors = c) { onPick(mode) }
+            }
+        }
+    }
+}
+
+/** One option of a choice: accent fill when selected, card with a divider border when not. */
+@Composable
+private fun ChoiceButton(label: String, selected: Boolean, colors: KitColors, onClick: () -> Unit) {
+    val c = colors
+    Box(
+        modifier = Modifier
+            .height(36.dp)
+            .background(if (selected) c.accent else c.cardBg, RoundedCornerShape(6.dp))
+            .border(1.dp, if (selected) c.accent else c.cardDivider, RoundedCornerShape(6.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            color = if (selected) c.accentFg else c.fg,
+            fontSize = 13.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+        )
+    }
+}
+
 @Composable
 private fun LinkText(text: String, color: androidx.compose.ui.graphics.Color, onClick: () -> Unit) {
     Text(
@@ -320,11 +386,48 @@ private fun AttachmentRow(a: FeedbackSession.Attachment, c: KitColors) {
             .padding(start = 12.dp, end = 4.dp, top = 2.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        a.thumb?.let { bmp ->
+            Thumb(bmp, Modifier.size(36.dp), corner = 4)
+            Spacer(modifier = Modifier.width(8.dp))
+        }
         Text(text = a.label, color = c.fg, fontSize = 14.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.width(8.dp))
         Text(text = status, color = c.helpFg, fontSize = 11.sp, modifier = Modifier.weight(1f))
         LinkText("Remove", c.helpFg) { FeedbackSession.removeAttachment(a.id) }
     }
+}
+
+/**
+ * The pictures and videos a sent message carried. One shows at its own
+ * shape (within limits); several show as squares, three to a row.
+ */
+@Composable
+private fun SentThumbs(thumbs: List<android.graphics.Bitmap>) {
+    if (thumbs.size == 1) {
+        val bmp = thumbs[0]
+        val ratio = (bmp.width.toFloat() / bmp.height.coerceAtLeast(1)).coerceIn(0.5f, 2f)
+        Thumb(bmp, Modifier.width(180.dp).aspectRatio(ratio), corner = 8)
+        return
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        thumbs.chunked(3).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { bmp -> Thumb(bmp, Modifier.size(80.dp), corner = 8) }
+            }
+        }
+    }
+}
+
+/** A preview, cropped to fill [modifier]'s box. */
+@Composable
+private fun Thumb(bmp: android.graphics.Bitmap, modifier: Modifier, corner: Int) {
+    val image = remember(bmp) { bmp.asImageBitmap() }
+    Image(
+        bitmap = image,
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        modifier = modifier.clip(RoundedCornerShape(corner.dp)),
+    )
 }
 
 private fun clock(ms: Long): String {
@@ -346,6 +449,12 @@ private fun ChatItem(item: FeedbackSession.Item, typing: Boolean, colors: KitCol
                     .background(c.accent, RoundedCornerShape(12.dp))
                     .padding(horizontal = 12.dp, vertical = 8.dp),
             ) {
+                if (item.thumbs.isNotEmpty()) {
+                    SentThumbs(item.thumbs)
+                    if (item.text.isNotEmpty() || item.attachments.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
                 if (item.text.isNotEmpty()) {
                     Text(text = item.text, color = c.accentFg, fontSize = 14.sp)
                 }
