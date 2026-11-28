@@ -1,6 +1,7 @@
 package com.mirrorapps.kit.feedback
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import com.mirrorapps.kit.LogsMode
 import com.mirrorapps.kit.MirrorAppsKit
@@ -10,6 +11,7 @@ import com.mirrorapps.kit.feedback.media.MediaKind
 import com.mirrorapps.kit.feedback.media.MediaReader
 import com.mirrorapps.kit.feedback.media.MediaSource
 import com.mirrorapps.kit.feedback.media.MediaUpload
+import com.mirrorapps.kit.feedback.media.Thumbnails
 import com.mirrorapps.kit.feedback.media.VoiceRecorder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -55,8 +57,13 @@ object FeedbackSession {
         val text: String,
         /** Agent offered to show what was sent: render a View chip. */
         val offersPreview: Boolean = false,
-        /** What the user attached to this message, as labels ("Picture"). */
+        /**
+         * What the user attached to this message without a preview, as
+         * labels ("Voice 0:12"). Pictures and videos show as [thumbs].
+         */
         val attachments: List<String> = emptyList(),
+        /** Previews of the pictures and videos the user attached, in order. */
+        val thumbs: List<Bitmap> = emptyList(),
     )
 
     enum class AttachState { UPLOADING, TRANSCRIBING, READY, FAILED }
@@ -70,6 +77,8 @@ object FeedbackSession {
         val progress: Float = 0f,
         val mediaId: String? = null,
         val error: String? = null,
+        /** A small preview of a picture or video, once it's been read. */
+        val thumb: Bitmap? = null,
     ) {
         /** Uploaded: it can go with a message (a transcript may still be coming). */
         val sendable: Boolean get() = mediaId != null && (state == AttachState.READY || state == AttachState.TRANSCRIBING)
@@ -229,7 +238,15 @@ object FeedbackSession {
         }
         _busy.value = true
         lastActivityMs = System.currentTimeMillis()
-        append(Item(nextId++, Role.USER, text, attachments = sending.map { it.label }))
+        append(
+            Item(
+                nextId++,
+                Role.USER,
+                text,
+                attachments = sending.filter { it.thumb == null }.map { it.label },
+                thumbs = sending.mapNotNull { it.thumb },
+            ),
+        )
         val about = app.value
         scope.launch {
             val bundle = if (sessionId == null) {
@@ -322,6 +339,10 @@ object FeedbackSession {
         val id = nextId++
         add(Attachment(id, kind, labelFor(kind, 0L), AttachState.UPLOADING))
         uploads[id] = scope.launch {
+            // The preview first: it's quick, and the picker's permission to
+            // read the file may not outlast the upload.
+            val thumb = withContext(Dispatchers.IO) { Thumbnails.load(ctx, uri, kind) }
+            if (thumb != null) change(id) { it.copy(thumb = thumb) }
             val source = withContext(Dispatchers.IO) {
                 runCatching { MediaReader.read(ctx, uri, kind) }.getOrNull()
             }

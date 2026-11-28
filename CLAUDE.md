@@ -90,7 +90,9 @@ wire format is the hub's (`functions/src/feedback/` there).
 - A host whose native code writes to logcat without its scrubbing sets
   `FeedbackOptions(logcat = false)`, so only its own log goes in a report
   (MirrorMsg: its Go bridges log there).
-- Media leaves the phone only when the user attaches it. Voice needs
+- Media leaves the phone only when the user attaches it. The chat's
+  previews of attached pictures and videos (`media/Thumbnails`) are small
+  bitmaps in memory, gone with the chat. Voice needs
   RECORD_AUDIO, asked for when the user taps Voice.
 
 ## Build and tests
