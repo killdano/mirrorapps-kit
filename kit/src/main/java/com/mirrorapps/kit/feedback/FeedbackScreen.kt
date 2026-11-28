@@ -121,9 +121,7 @@ fun FeedbackPane(modifier: Modifier = Modifier) {
     }
 
     Column(modifier = modifier.fillMaxSize()) {
-        if (config.feedback.showLogsChoice) {
-            LogsChoiceRow(selected = logsMode, colors = c) { FeedbackSession.chooseLogs(it) }
-        }
+        LogsChoiceRow(selected = logsMode, colors = c) { FeedbackSession.chooseLogs(it) }
 
         if (chat.isNotEmpty() || standIn) {
             Row(
@@ -283,8 +281,8 @@ fun FeedbackPane(modifier: Modifier = Modifier) {
 
 /**
  * "Logs in bug reports" at the top of the chat, where logs are shared:
- * Full, Redacted or None, the host's own setting
- * ([com.mirrorapps.kit.FeedbackOptions.showLogsChoice]).
+ * Full, Redacted or None. Every app shows it; the setting itself is the
+ * host's ([com.mirrorapps.kit.FeedbackOptions.logsMode]).
  */
 @Composable
 private fun LogsChoiceRow(selected: LogsMode, colors: KitColors, onPick: (LogsMode) -> Unit) {
